@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>白浜 MSC500 戦略シム v2 (3D)</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.128.0/three.min.js"></script>
+<style>
+body{margin:0;background:#101418;color:#dde;font:14px/1.5 system-ui,sans-serif;user-select:none}
+#wrap{display:flex;flex-direction:column;height:100vh}
+header{display:flex;gap:10px;align-items:center;padding:6px 12px;background:#1a2028;flex-wrap:wrap}
+header h1{font-size:14px;margin:0;flex:1}
+#main{display:flex;gap:8px;padding:8px;flex:1;min-height:0}
+#courseBox{flex:2;position:relative;background:#0a0e12;border:1px solid #333;overflow:hidden}
+#mm{position:absolute;top:8px;right:8px;width:300px;height:120px;background:rgba(10,14,18,.8);border:1px solid #456}
+#hud{flex:1;min-width:270px;display:flex;flex-direction:column;gap:6px;overflow:auto}
+.card{background:#1a2028;border:1px solid #333;padding:6px 10px;border-radius:6px}
+.big{font-size:32px;font-weight:700;font-family:monospace}
+.row{display:flex;justify-content:space-between;font-family:monospace}
+.warn{color:#ffb020;font-weight:700}.bad{color:#ff5040;font-weight:700}.ok{color:#7d7}
+#bottom{display:flex;gap:8px;height:140px;padding:0 8px 8px}
+#chartBox{flex:2;background:#0a0e12;border:1px solid #333}
+#log{flex:1;overflow:auto;background:#0a0e12;border:1px solid #333;font-family:monospace;font-size:12px;padding:4px}
+button{background:#2a3442;color:#dde;border:1px solid #456;border-radius:4px;padding:3px 10px;cursor:pointer}
+button.on{background:#48a}
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center;z-index:9}
+.panel{background:#1a2028;border:1px solid #456;border-radius:8px;padding:16px 22px;min-width:400px;max-width:92vw;max-height:92vh;overflow:auto}
+.panel h2{margin:0 0 10px;font-size:16px}
+.grid{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;align-items:center}
+.grid input,.grid select{background:#0a0e12;color:#dde;border:1px solid #456;border-radius:4px;padding:3px 6px;font-family:monospace}
+.hidden{display:none}
+#flag{font-size:15px;font-weight:700;min-height:22px}
+</style>
+</head>
+<body>
+<div id="wrap">
+<header>
+ <h1>白浜 ECO-CAR チャレンジ MSC500 3D戦略シム v2（旧滑走路 1周2,540m／要インターネット）</h1>
+ <span id="padState">🎮 未接続</span><span id="viewState">🎥 チェイス</span>
+ <button id="ts1" class="on">1x</button><button id="ts2">2x</button><button id="ts4">4x</button>
+ <button id="btnPause">Start/Pause(Space)</button><button id="btnSet">⚙ 設定</button>
+</header>
+<div id="main">
+ <div id="courseBox"><canvas id="mm"></canvas></div>
+ <div id="hud">
+  <div class="card"><div class="row"><span>速度</span><span id="fOv" class="warn hidden">オレンジボール!</span></div>
+   <div class="big"><span id="hSpd">0.0</span> km/h</div><div id="flag"></div></div>
+  <div class="card">
+   <div class="row"><span>モータ電流</span><span id="hAmp">0.0 A</span></div>
+   <div class="row"><span>積算放出</span><span id="hAh">0.00 Ah</span></div>
+   <div class="row"><span>バッテリ電圧</span><span id="hVolt">51.2 V</span></div>
+   <div class="row"><span>残エネルギー</span><span id="hWh">960 Wh</span></div>
+   <div class="row"><span>SOC</span><span id="hSoc">100 %</span></div></div>
+  <div class="card">
+   <div class="row"><span>発電(太陽)</span><span id="hSol">0 W</span></div>
+   <div class="row"><span>回生回収</span><span id="hReg">0 W</span></div>
+   <div class="row"><span>モータ出力</span><span id="hMot">0 W</span></div></div>
+  <div class="card">
+   <div class="row"><span>レース時刻</span><span id="hClk">0:00</span></div>
+   <div class="row"><span>周回 / 最終ラップ</span><span id="hLap">0 --</span></div>
+   <div class="row"><span>走行距離</span><span id="hDist">0 m</span></div>
+   <div class="row"><span>ドライバー乗車</span><span id="hDrv">0:00</span></div></div>
+  <div class="card" style="font-size:11px">
+   操作: ↑/W加速 ↓/S回生Br ←→/ADステア P=ピット C=交代(停止中) V=視点切替<br>
+   🎮: RT加速 LT回生Br 左スティック=ステア A=ピット/再スタート X=交代 Y=視点 Start=開始/停止
+  </div>
+ </div>
+</div>
+<div id="bottom"><div id="chartBox"><canvas id="ch"></canvas></div><div id="log"></div></div>
+</div>
+
+<div id="setOv" class="overlay"><div class="panel">
+ <h2>セットアップ（MSC500 クラス）</h2>
+ <div class="grid">
+  <label>バッテリ容量 [Ah] (48V系)</label><input id="sAh" type="number" value="20">
+  <label>太陽電池 実測ピーク [W]</label><input id="sSol" type="number" value="200">
+  <label>レース時間 [分]</label><select id="sRace"><option value="60">60(練習)</option><option value="80">80(練習)</option><option value="150" selected>150(第1・2HEAT)</option><option value="180">180(第3HEAT)</option></select>
+  <label>スタート時刻</label><select id="sT0"><option value="7">7:00</option><option value="9" selected>9:00</option><option value="11">11:00</option><option value="13">13:00</option><option value="15">15:00</option></select>
+  <label>天候</label><select id="sWx"><option value="clear" selected>快晴</option><option value="cloud">曇り(変動あり)</option></select>
+  <label>縦断勾配1°</label><select id="sSl"><option value="V" selected>V字(中央低い)</option><option value="A">Λ字(中央高い)</option><option value="none">なし</option></select>
+  <label>回生効率 [%]</label><input id="sRg" type="number" value="70">
+  <label>総重量 [kg]</label><input id="sM" type="number" value="150">
+  <label>影(太陽表現)</label><select id="sSh"><option value="1" selected>オン</option><option value="0">オフ(軽量)</option></select>
+ </div>
+ <p style="font-size:12px">前提: モータ800W/効率80%/最高速60km/h、CdA≒0.16、Crr=0.008。オレンジボール=25km/h未満5秒(Uターン±100m除く)→ピットイン必須。ピット30km/h。連続乗車80分(超過1分=1周減算)。</p>
+ <button id="btnGo" style="font-size:16px;padding:6px 24px">セッション開始</button>
+</div></div>
+
+<div id="resOv" class="overlay hidden"><div class="panel"><h2>🏁 チェッカー — 結果</h2><pre id="resTxt" style="font-family:monospace"></pre>
+<button id="btnRe">セットアップへ戻る</button></div></div>
+
+<div id="errOv" class="overlay hidden"><div class="panel"><h2>⚠ 3Dエンジン読込失敗</h2>
+<p>Three.js をCDNから読込めませんでした。本バージョン(案A)は実行時にインターネット接続が必要です。オフライン環境ではネット接続のある環境で開いてください。</p></div></div>
+
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+const LAP=2540, STR=1220, TURN=50, TR=TURN/Math.PI;
+let P={Ah:20,sol:200,raceMin:150,t0:9,wx:"clear",sl:"V",rg:.7,m:150,sh:true};
+let capWh=960;
+const ocvT=[[0,40],[.1,44.8],[.2,48.8],[.5,51.2],[.8,52.8],[.95,55.2],[1,58.4]];
+function ocv(s){s=Math.max(0,Math.min(1,s));for(let i=1;i<ocvT.length;i++){if(s<=ocvT[i][0]){const[a,va]=ocvT[i-1],[b,vb]=ocvT[i];return va+(vb-va)*(s-a)/(b-a)}}return 58.4}
+function newState(){capWh=P.Ah*48;return{run:false,fin:false,t:0,s:0,v:0,lat:0,soc:1,AhOut:0,AhIn:0,Esol:0,Ereg:0,Emot:0,
+ lap:1,lapT0:0,laps:[],drv:0,lowT:0,ball:false,mode:"track",pitD:0,pitX:0,stopT:0,viol:0,cloud:1,cloudVis:1,cloudT:0,
+ hist:[],histAcc:0,warn75:false,warn80:false,penLap:0,I:0,V:ocv(1),Pmot:0,Prev:0,Psol:0,Pbat:0,turnWarnCd:0,view:"chase"};}
+let S=newState(), ts=1, keys={}, prevBtn={};
+function log(m){const d=document.createElement("div");d.textContent="["+fmtT(S.t)+"] "+m;$("log").prepend(d);}
+function fmtT(s){s=Math.floor(s);return Math.floor(s/60)+":"+String(s%60).padStart(2,"0")}
+function slopeAt(s){if(P.sl==="none")return 0;const g=Math.tan(Math.PI/180);let r=0;
+ const q=(s<STR)?s:(s>=STR+TURN&&s<2*STR+TURN? s-STR-TURN : -1);
+ if(q>=0)r=q<STR/2?-g:g; if(P.sl==="A")r=-r; return r;}
+function inTurn(s){return (s>=STR&&s<STR+TURN)||(s>=2*STR+TURN&&s<LAP);}
+function inCheck(s){return (s>100&&s<STR-100)||(s>STR+TURN+100&&s<2*STR+TURN-100);}
+function pathPos(s){s=((s%LAP)+LAP)%LAP;
+ if(s<STR)return{x:s,z:0};
+ if(s<STR+TURN){const a=Math.PI*(s-STR)/TURN;return{x:STR+TR*Math.sin(a),z:16-TR*Math.cos(a)}}
+ if(s<2*STR+TURN){const q=s-STR-TURN;return{x:STR-q,z:32}}
+ const a=Math.PI*(s-2*STR-TURN)/TURN;return{x:-TR*Math.sin(a),z:16+TR*Math.cos(a)}}
+function pathHead(s){const p1=pathPos(s),p2=pathPos(s+1);return Math.atan2(p2.z-p1.z,p2.x-p1.x);}
+function carPos2D(){
+ if(S.mode==="track"){const p=pathPos(S.s);const off=S.lat*4;return{x:p.x,z:p.z+off,yaw:pathHead(S.s)};}
+ if(S.mode==="toPit"){const d=S.pitD,xe=S.pitX;
+  if(d<8)return{x:xe,z:32+9*(d/8),yaw:Math.PI/2};
+  return{x:xe-(d-8),z:41,yaw:Math.PI};}
+ if(S.mode==="stopped")return{x:S.pitX-72,z:41,yaw:Math.PI};
+ const xb=S.pitX-72,d=Math.min(40,S.pitD),L1=Math.abs(xb)+10;
+ if(d<Math.abs(xb))return{x:xb+d,z:41,yaw:0};
+ if(d<L1)return{x:0,z:41-41*((d-Math.abs(xb))/10)*0+41,yaw:0};
+ return{x:0,z:41-41*Math.min(1,(d-L1)/ (40-L1||1)),yaw:-Math.PI/2};}
+function solarW(){const h=P.t0+S.t/3600;let f=Math.sin(Math.PI*(h-6)/12);f=Math.max(0,f);if(P.wx==="cloud")f*=S.cloud;return P.sol*f;}
+// ================= physics =================
+function step(dt){
+ if(!S.run||S.fin)return;
+ S.t+=dt;
+ if(P.wx==="cloud"){S.cloudT-=dt;if(S.cloudT<=0){S.cloudT=15+Math.random()*20;S.cloud=.25+Math.random()*.75;}}
+ else S.cloud=1;
+ const inp=readInput();
+ if(S.mode!=="stopped")S.drv+=dt;
+ if(S.drv>75*60&&!S.warn75){S.warn75=true;log("⚠ ドライバー乗車75分経過");}
+ if(S.drv>80*60&&!S.warn80){S.warn80=true;log("🚨 連続乗車80分超過! 1分毎に1周減算");}
+ S.penLap=Math.max(0,Math.floor((S.drv-80*60)/60));
+ S.Psol=solarW();
+ const g0=9.81,sl=slopeAt(S.s);
+ const Frr=P.m*g0*0.008*Math.cos(sl)*(S.v>0?1:0),Fgr=P.m*g0*Math.sin(sl)*(S.v>0?1:0),Fd=.5*1.2*0.16*S.v*S.v*(S.v>0?1:0);
+ let Fdrv=0,Pbat=0;
+ if(S.soc>0.001&&S.mode!=="stopped"){Fdrv=inp.thr*Math.min(640/Math.max(S.v,.5),120);if(S.v>=60/3.6)Fdrv=0;Pbat=Fdrv*S.v/0.8;}
+ let Fbr=inp.brk*350,Preg=Fbr*S.v*P.rg;
+ if(Preg>800){Fbr=800/Math.max(S.v,.5);Preg=800;}
+ const a=(Fdrv-Frr-Fd-Fgr-Fbr)/P.m;
+ S.v=Math.max(0,S.v+a*dt);
+ if(S.mode==="track"){
+  if(inp.pitEdge&&S.s>=2*STR+TURN-100&&S.s<2*STR+TURN){S.mode="toPit";S.pitD=0;S.pitX=pathPos(S.s).x;log("ピットイン開始(制限30km/h)");}
+  else{S.s+=S.v*dt;
+   if(S.s>=LAP){S.s-=LAP;const lt=S.t-S.lapT0;S.laps.push(lt);log("Lap "+(S.laps.length)+" : "+lt.toFixed(1)+"s");S.lap++;S.lapT0=S.t;}}}
+ else if(S.mode==="toPit"){
+  if(S.v>30/3.6){S.viol+=dt;if(S.viol>.5){log("⚠ ピットレーン速度超過!");S.viol=-3;}}
+  S.pitD+=S.v*dt;
+  if(S.pitD>=80&&S.v<.1){S.mode="stopped";S.stopT=0;log("ピット停止(交代エリア・最長3分)");}}
+ else if(S.mode==="stopped"){
+  S.stopT+=dt;S.v=0;
+  if(S.stopT>180&&Math.floor(S.stopT)!==Math.floor(S.stopT-dt))log("⚠ 3分超過! パドック移動指示(シムは警告のみ)");
+  if(inp.chgEdge){S.drv=0;S.warn75=S.warn80=false;log("🔄 ドライバー交代完了");}
+  if(inp.pitEdge){S.mode="exit";S.pitD=0;log("ピットアウト");}}
+ else if(S.mode==="exit"){
+  if(S.v>30/3.6){S.viol+=dt;if(S.viol>.5){log("⚠ ピットレーン速度超過!");S.viol=-3;}}
+  S.pitD+=S.v*dt;
+  if(S.pitD>=40){S.mode="track";S.s=0;S.lapT0=S.t;}}
+ S.lat=Math.max(-1,Math.min(1,S.lat+inp.steer*dt*1.5));
+ const Pchg=Preg+S.Psol;
+ const dWh=(Pbat-Pchg)*dt/3600;
+ S.soc=Math.max(0,Math.min(1,S.soc-dWh/capWh));
+ S.AhOut+=Pbat/Math.max(S.V,30)*dt/3600;S.AhIn+=Pchg/Math.max(S.V,30)*dt/3600;
+ S.Emot+=Pbat*dt/3600;S.Ereg+=Preg*dt/3600;S.Esol+=S.Psol*dt/3600;
+ S.I=(Pbat-Pchg)/Math.max(S.V,30);S.V=ocv(S.soc)-S.I*0.06;S.Pbat=Pbat;S.Pmot=Pbat*0.8;S.Prev=Preg;
+ if(S.mode==="track"&&inCheck(S.s)&&S.v<25/3.6&&S.t>5)S.lowT+=dt;else S.lowT=0;
+ if(!S.ball&&S.lowT>5){S.ball=true;log("🟠 オレンジボール提示! 即ピットインせよ");}
+ if(S.ball&&S.mode==="stopped"&&S.stopT>3){S.ball=false;log("オレンジボール解除");}
+ S.turnWarnCd-=dt;
+ if(inTurn(S.s)&&S.v>6.5&&S.turnWarnCd<=0){log("⚠ Uターン速度超過(目安23km/h以下)");S.turnWarnCd=5;}
+ if(S.t>=P.raceMin*60&&!S.fin){S.fin=true;S.run=false;showResult();}
+ S.histAcc+=dt;
+ if(S.histAcc>=1){S.histAcc=0;S.hist.push([S.t,S.v*3.6,S.soc*100,S.Pbat]);if(S.hist.length>20000)S.hist.shift();}
+}
+// ================= input =================
+function edge(k,v){const p=prevBtn[k]||false;prevBtn[k]=v;return v&&!p;}
+function toggleRun(){if(S.fin)return;S.run=!S.run;log(S.run?"▶ 走行開始":"⏸ 一時停止");}
+function readInput(){
+ let thr=0,brk=0,steer=0,pit=false,chg=false,st=false,view=false;
+ if(keys.ArrowUp||keys.KeyW)thr=1;if(keys.ArrowDown||keys.KeyS)brk=1;
+ if(keys.ArrowLeft||keys.KeyA)steer-=1;if(keys.ArrowRight||keys.KeyD)steer+=1;
+ pit=!!keys.KeyP;chg=!!keys.KeyC;
+ const gps=navigator.getGamepads?navigator.getGamepads():[];let gp=null;
+ for(const g of gps)if(g&&g.connected)gp=g;
+ $("padState").textContent=gp?"🎮 接続中":"🎮 未接続";
+ if(gp){thr=Math.max(thr,gp.buttons[7]?gp.buttons[7].value:0);
+  brk=Math.max(brk,gp.buttons[6]?gp.buttons[6].value:0);
+  if(Math.abs(gp.axes[0])>.15)steer=gp.axes[0];
+  const b=i=>gp.buttons[i]&&gp.buttons[i].pressed;
+  pit=pit||b(0);chg=chg||b(2);view=b(3);st=b(9);}
+ if(keys.Space)st=true;
+ if(edge("st",st))toggleRun();
+ if(edge("vw",view||!!keys.KeyV)){S.view=S.view==="chase"?"cockpit":"chase";$("viewState").textContent=S.view==="chase"?"🎥 チェイス":"🎥 コックピット";}
+ keys.KeyV=false;
+ return{thr,brk,steer,pitEdge:edge("pe",pit),chgEdge:edge("ce",chg)};
+}
+// ================= three.js =================
+let T=null;
+function initThree(){
+ if(!window.THREE){$("errOv").classList.remove("hidden");return false;}
+ const box=$("courseBox");
+ const r=new THREE.WebGLRenderer({antialias:true});
+ r.setSize(box.clientWidth,box.clientHeight);r.setPixelRatio(Math.min(2,devicePixelRatio));
+ r.shadowMap.enabled=P.sh;r.shadowMap.type=THREE.PCFSoftShadowMap;
+ box.insertBefore(r.domElement,$("mm"));
+ const sc=new THREE.Scene();
+ const cam=new THREE.PerspectiveCamera(70,box.clientWidth/box.clientHeight,.1,5000);
+ sc.add(cam);
+ const hemi=new THREE.HemisphereLight(0xbfd8ff,0x3a5a2a,.8);sc.add(hemi);
+ const sun=new THREE.DirectionalLight(0xffffff,1);sun.castShadow=P.sh;
+ sun.shadow.mapSize.set(2048,2048);
+ const sc2=sun.shadow.camera;sc2.left=-80;sc2.right=80;sc2.top=80;sc2.bottom=-80;sc2.far=800;
+ sc.add(sun);sc.add(sun.target);
+ // ground
+ const ground=new THREE.Mesh(new THREE.PlaneGeometry(5000,900),new THREE.MeshLambertMaterial({color:0x4a7a3a}));
+ ground.rotation.x=-Math.PI/2;ground.position.set(600,  -0.05,16);ground.receiveShadow=true;sc.add(ground);
+ // pavement
+ const pav=new THREE.Mesh(new THREE.PlaneGeometry(1264,44),new THREE.MeshLambertMaterial({color:0x3b3f45}));
+ pav.rotation.x=-Math.PI/2;pav.position.set(610,0,16);pav.receiveShadow=true;sc.add(pav);
+ const pitPav=new THREE.Mesh(new THREE.PlaneGeometry(200,8),new THREE.MeshLambertMaterial({color:0x3b3f45}));
+ pitPav.rotation.x=-Math.PI/2;pitPav.position.set(15,0.0,42);pitPav.receiveShadow=true;sc.add(pitPav);
+ function strip(w,h,x,z,y,col,op){const m=new THREE.Mesh(new THREE.PlaneGeometry(w,h),new THREE.MeshBasicMaterial({color:col,transparent:op!==undefined,opacity:op===undefined?1:op}));
+  m.rotation.x=-Math.PI/2;m.position.set(x,y,z);sc.add(m);return m;}
+ // lane lines (dashed via texture)
+ function dashTex(col){const c=document.createElement("canvas");c.width=64;c.height=8;const g=c.getContext("2d");g.fillStyle=col;g.fillRect(0,2,40,4);
+  const t=new THREE.CanvasTexture(c);t.wrapS=THREE.RepeatWrapping;t.repeat.x=60;return t;}
+ for(const z of[5,10,22,27]){const m=new THREE.Mesh(new THREE.PlaneGeometry(1220,.35),new THREE.MeshBasicMaterial({map:dashTex("#cccccc")}));
+  m.rotation.x=-Math.PI/2;m.position.set(610,.02,z);sc.add(m);}
+ strip(1220,.5,610,0,.02,0xeeeeee);strip(1220,.5,610,32,.02,0xeeeeee);
+ strip(1220,.6,610,15.7,.03,0xdddd44);strip(1220,.6,610,16.3,.03,0xdddd44);
+ // shoulder-relief yellow zones
+ for(const[x0]of[[0],[1120]]){strip(100,1.2,x0+50,-5,.04,0xcccc22);strip(100,1.2,x0+50,37,.04,0xcccc22);}
+ // turn blue areas + red triangles
+ for(const cx of[0,1220]){const d=new THREE.Mesh(new THREE.CircleGeometry(TR,24),new THREE.MeshBasicMaterial({color:0x2277aa}));
+  d.rotation.x=-Math.PI/2;d.position.set(cx,.015,16);sc.add(d);
+  const shp=new THREE.Shape();shp.moveTo(0,0);shp.lineTo(-9,5);shp.lineTo(-9,-5);shp.closePath();
+  const tri=new THREE.Mesh(new THREE.ShapeGeometry(shp),new THREE.MeshBasicMaterial({color:0xcc2222}));
+  tri.rotation.x=-Math.PI/2;tri.position.set(cx+(cx===0?-2:TR+2),.05,16);sc.add(tri);}
+ // start line (checkered)
+ {const c=document.createElement("canvas");c.width=16;c.height=64;const g=c.getContext("2d");
+  for(let i=0;i<16;i++)for(let j=0;j<4;j++){g.fillStyle=(i+j)%2?"#fff":"#111";g.fillRect(i,j*16,1,16);}
+  const t=new THREE.CanvasTexture(c);const m=new THREE.Mesh(new THREE.PlaneGeometry(2,15),new THREE.MeshBasicMaterial({map:t}));
+  m.rotation.x=-Math.PI/2;m.position.set(0,.06,7.5);sc.add(m);}
+ // pit lines
+ strip(40,.4,40,38.5,.04,0xeeeeee);strip(60,.4,-10,38.2,.05,0xeeeeee);strip(60,.4,-10,38.8,.05,0xeeeeee);
+ // cones
+ const coneG=new THREE.ConeGeometry(.35,.9,8),coneM=new THREE.MeshLambertMaterial({color:0xff6600});
+ for(const[x,z]of[[1140,-9],[1170,-9],[1200,-9],[1140,41],[1170,41],[1200,41],[20,-9],[60,-9]]){
+  const cn=new THREE.Mesh(coneG,coneM);cn.position.set(x,.45,z);cn.castShadow=true;sc.add(cn);}
+ // signs
+ function sign(txt,x,z,s){const c=document.createElement("canvas");c.width=512;c.height=128;const g=c.getContext("2d");
+  g.fillStyle="#ffecb0";g.fillRect(0,0,512,128);g.fillStyle="#333";g.font="bold 52px sans-serif";g.textAlign="center";g.textBaseline="middle";g.fillText(txt,256,64);
+  const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c)}));sp.scale.set(s,s/4,1);sp.position.set(x,4,z);sc.add(sp);}
+ sign("路肩制限解除 100m",50,-10,26);sign("路肩制限解除 100m",1170,-10,26);
+ sign("PIT ドライバー交代",10,48,26);sign("START",0,-10,18);
+ // clouds
+ T={r,sc,cam,hemi,sun,clouds:[]};
+ const clG=new THREE.PlaneGeometry(90,60);
+ for(let i=0;i<8;i++){const cm=new THREE.Mesh(clG,new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:.55,depthWrite:false}));
+  cm.rotation.x=-Math.PI/2;cm.position.set(Math.random()*1400-100,60,Math.random()*300-100);sc.add(cm);T.clouds.push(cm);}
+ // car
+ const car=new THREE.Group();
+ const body=new THREE.Mesh(new THREE.BoxGeometry(2.6,.45,1.1),new THREE.MeshPhongMaterial({color:0xdd3322}));body.position.y=.5;body.castShadow=true;car.add(body);
+ const panel=new THREE.Mesh(new THREE.BoxGeometry(2.2,.06,1.0),new THREE.MeshPhongMaterial({color:0x113377,shininess:80}));panel.position.y=.78;panel.castShadow=true;car.add(panel);
+ const hel=new THREE.Mesh(new THREE.SphereGeometry(.22,12,10),new THREE.MeshPhongMaterial({color:0xeeeeee}));hel.position.set(.3,.85,0);car.add(hel);
+ const wG=new THREE.CylinderGeometry(.33,.33,.12,12);
+ for(const[wx,wz]of[[-.9,.62],[-.9,-.62],[1.1,.62],[1.1,-.62]]){const w=new THREE.Mesh(wG,new THREE.MeshLambertMaterial({color:0x111111}));
+  w.rotation.x=Math.PI/2;w.position.set(wx,.33,wz);w.castShadow=true;car.add(w);}
+ sc.add(car);T.car=car;T.helY=.85;
+ addEventListener("resize",()=>{const w=box.clientWidth,h=box.clientHeight;r.setSize(w,h);cam.aspect=w/h;cam.updateProjectionMatrix();});
+ return true;
+}
+function updateSun(){
+ const h=P.t0+S.t/3600,f=Math.max(0,Math.sin(Math.PI*(h-6)/12));
+ S.cloudVis+= (S.cloud-S.cloudVis)*.02;
+ const alt=(5+50*f)*Math.PI/180, az=(90+180*Math.min(1,Math.max(0,(h-6)/12)))*Math.PI/180;
+ const p=carPos2D();
+ const dx=Math.cos(alt)*Math.cos(az),dy=Math.sin(alt),dz=Math.cos(alt)*Math.sin(az);
+ T.sun.position.set(p.x+dx*300,dy*300,p.z+dz*300);
+ T.sun.target.position.set(p.x,0,p.z);
+ T.sun.intensity=.25+.95*f*(.35+.65*S.cloudVis);
+ T.hemi.intensity=.35+.45*f;
+ const sky=new THREE.Color().setHSL(.58,.55,.18+.5*f);
+ T.sc.background=sky;T.sc.fog=new THREE.Fog(sky.getHex(),300,2200);
+ for(const c of T.clouds){c.visible=P.wx==="cloud";c.position.x+=.05;if(c.position.x>1400)c.position.x=-150;}
+}
+function updateCarCam(dt){
+ const p=carPos2D();
+ T.car.position.set(p.x,0,p.z);T.car.rotation.y=-p.yaw;
+ const fx=Math.cos(p.yaw),fz=Math.sin(p.yaw);
+ if(S.view==="chase"){
+  const tx=p.x-fx*9,ty=3.4,tz=p.z-fz*9;
+  const k=1-Math.exp(-dt*4);
+  T.cam.position.lerp(new THREE.Vector3(tx,ty,tz),k);
+  T.cam.lookAt(p.x+fx*6,1,p.z+fz*6);
+ }else{
+  T.cam.position.set(p.x+fx*.4,1.05,p.z+fz*.4);
+  T.cam.lookAt(p.x+fx*40,0.8,p.z+fz*40);
+ }
+}
+// ================= minimap & chart =================
+const mm=$("mm"),mx=mm.getContext("2d"),ch=$("ch"),hx2=ch.getContext("2d");
+function fit(c,w,h){c.width=(w||c.parentElement.clientWidth)*devicePixelRatio;c.height=(h||c.parentElement.clientHeight)*devicePixelRatio;}
+function fitAll(){fit(mm,300,120);fit(ch);}
+addEventListener("resize",fitAll);
+function drawMM(){const W=mm.width,H=mm.height;mx.clearRect(0,0,W,H);
+ const sc=W/(STR+140),ox=70*sc,oy=H/2-16*sc;const X=x=>ox+x*sc,Y=z=>oy+z*sc;
+ mx.fillStyle="#2b333c";mx.fillRect(X(-22),Y(-6),(STR+44)*sc,44*sc);
+ mx.fillStyle="#cc4";
+ mx.fillRect(X(0),Y(-6),100*sc,2*sc);mx.fillRect(X(0),Y(36),100*sc,2*sc);
+ mx.fillRect(X(1120),Y(-6),100*sc,2*sc);mx.fillRect(X(1120),Y(36),100*sc,2*sc);
+ for(const tx of[0,1220]){mx.fillStyle="#27a";mx.beginPath();mx.arc(X(tx),Y(16),TR*sc,0,7);mx.fill();
+  mx.fillStyle="#c22";mx.beginPath();mx.moveTo(X(tx),Y(16));mx.lineTo(X(tx)-8*sc,Y(11));mx.lineTo(X(tx)-8*sc,Y(21));mx.fill();}
+ mx.strokeStyle="#fff";mx.lineWidth=2;mx.beginPath();mx.moveTo(X(0),Y(0));mx.lineTo(X(0),Y(15));mx.stroke();mx.lineWidth=1;
+ const p=carPos2D();mx.fillStyle="#0f0";mx.beginPath();mx.arc(X(p.x),Y(p.z),3*devicePixelRatio,0,7);mx.fill();}
+function drawChart(){const W=ch.width,H=ch.height;hx2.clearRect(0,0,W,H);
+ const n=S.hist.length;if(n<2)return;
+ hx2.strokeStyle="#ff8";hx2.beginPath();
+ S.hist.forEach((p,i)=>{const x=i/(n-1)*W,y=H-(p[1]/70)*H*.9;i?hx2.lineTo(x,y):hx2.moveTo(x,y)});hx2.stroke();
+ hx2.strokeStyle="#4f4";hx2.beginPath();
+ S.hist.forEach((p,i)=>{const x=i/(n-1)*W,y=H-(p[2]/100)*H*.9;i?hx2.lineTo(x,y):hx2.moveTo(x,y)});hx2.stroke();
+ hx2.fillStyle="#888";hx2.font=10*devicePixelRatio+"px sans-serif";hx2.fillText("黄=速度 緑=SOC",6,12*devicePixelRatio);}
+function hud(){$("hSpd").textContent=(S.v*3.6).toFixed(1);
+ $("hAmp").textContent=S.I.toFixed(1)+" A";$("hAh").textContent=S.AhOut.toFixed(2)+" Ah";
+ $("hVolt").textContent=S.V.toFixed(1)+" V";$("hWh").textContent=Math.round(S.soc*capWh)+" Wh";
+ $("hSoc").textContent=(S.soc*100).toFixed(1)+" %";
+ $("hSol").textContent=Math.round(S.Psol)+" W";$("hReg").textContent=Math.round(S.Prev)+" W";$("hMot").textContent=Math.round(S.Pmot)+" W";
+ $("hClk").textContent=fmtT(S.t)+" / "+P.raceMin+"m";
+ $("hLap").textContent=(S.lap-1)+" "+(S.laps.length?S.laps[S.laps.length-1].toFixed(1)+"s":"--");
+ $("hDist").textContent=Math.round((S.lap-1)*LAP+S.s)+" m";
+ $("hDrv").textContent=fmtT(S.drv)+(S.drv>75*60?" ⚠":"");
+ let fl="";if(S.ball)fl+="🟠オレンジボール ";if(S.mode!=="track")fl+="🔧PIT ";
+ $("flag").innerHTML=fl?"<span class='warn'>"+fl+"</span>":"<span class='ok'>🟢 通常競技</span>";
+ $("fOv").classList.toggle("hidden",!S.ball);}
+function showResult(){$("resTxt").textContent=
+ "周回数        : "+(S.lap-1)+"\n走行距離      : "+Math.round((S.lap-1)*LAP+S.s)+" m\n"+
+ "ペナルティ    : "+S.penLap+" 周(乗車超過)\n有効周回      : "+Math.max(0,(S.lap-1)-S.penLap)+"\n\n"+
+ "バッテリ放出  : "+S.AhOut.toFixed(2)+" Ah / "+S.Emot.toFixed(0)+" Wh\n回生回収      : "+S.Ereg.toFixed(0)+" Wh\n太陽光発電    : "+S.Esol.toFixed(0)+" Wh\n残SOC         : "+(S.soc*100).toFixed(1)+" %";
+ $("resOv").classList.remove("hidden");}
+// ================= main loop =================
+let last=performance.now();
+function loop(now){const dtR=Math.min(.1,(now-last)/1000);last=now;
+ const sub=Math.max(1,Math.round(dtR*50*ts)),dt=dtR*ts/sub;
+ for(let i=0;i<sub;i++)step(dt);
+ if(T){updateSun();updateCarCam(dtR);T.r.render(T.sc,T.cam);}
+ drawMM();drawChart();hud();requestAnimationFrame(loop);}
+// ================= events =================
+addEventListener("keydown",e=>{keys[e.code]=true;if(["Space","ArrowUp","ArrowDown"].includes(e.code))e.preventDefault();});
+addEventListener("keyup",e=>{keys[e.code]=false;});
+[["ts1",1],["ts2",2],["ts4",4]].forEach(([id,v])=>$(id).onclick=()=>{ts=v;["ts1","ts2","ts4"].forEach(x=>$(x).classList.toggle("on",x===id));});
+$("btnPause").onclick=toggleRun;
+$("btnSet").onclick=()=>$("setOv").classList.remove("hidden");
+$("btnGo").onclick=()=>{P.Ah=+$("sAh").value||20;P.sol=+$("sSol").value||200;P.raceMin=+$("sRace").value;P.t0=+$("sT0").value;
+ P.wx=$("sWx").value;P.sl=$("sSl").value;P.rg=($("sRg").value||70)/100;P.m=+$("sM").value||150;P.sh=$("sSh").value==="1";
+ S=newState();$("log").innerHTML="";$("setOv").classList.add("hidden");$("resOv").classList.add("hidden");
+ if(!T)initThree();
+ if(T){T.sun.castShadow=P.sh;T.car.traverse(o=>{if(o.isMesh)o.castShadow=true;});}
+ log("セッション準備完了: "+P.raceMin+"分 / 太陽"+P.sol+"W / バッテリ"+P.Ah+"Ah — SpaceまたはStartでスタート");};
+$("btnRe").onclick=()=>{$("resOv").classList.add("hidden");$("setOv").classList.remove("hidden");};
+fitAll();requestAnimationFrame(loop);
+</script>
+</body>
+</html>
