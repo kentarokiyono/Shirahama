@@ -3,8 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>白浜 MSC500 戦略シム v2 (3D)</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.128.0/three.min.js"></script>
+<title>白浜 MSC500 戦略シム v4.2 (3D・自由走行)</title>
 <style>
 body{margin:0;background:#101418;color:#dde;font:14px/1.5 system-ui,sans-serif;user-select:none}
 #wrap{display:flex;flex-direction:column;height:100vh}
@@ -17,7 +16,7 @@ header h1{font-size:14px;margin:0;flex:1}
 .card{background:#1a2028;border:1px solid #333;padding:6px 10px;border-radius:6px}
 .big{font-size:32px;font-weight:700;font-family:monospace}
 .row{display:flex;justify-content:space-between;font-family:monospace}
-.warn{color:#ffb020;font-weight:700}.bad{color:#ff5040;font-weight:700}.ok{color:#7d7}
+.warn{color:#ffb020;font-weight:700}.ok{color:#7d7}
 #bottom{display:flex;gap:8px;height:140px;padding:0 8px 8px}
 #chartBox{flex:2;background:#0a0e12;border:1px solid #333}
 #log{flex:1;overflow:auto;background:#0a0e12;border:1px solid #333;font-family:monospace;font-size:12px;padding:4px}
@@ -30,22 +29,29 @@ button.on{background:#48a}
 .grid input,.grid select{background:#0a0e12;color:#dde;border:1px solid #456;border-radius:4px;padding:3px 6px;font-family:monospace}
 .hidden{display:none}
 #flag{font-size:15px;font-weight:700;min-height:22px}
+#thrBar{height:8px;background:#0a0e12;border:1px solid #456;border-radius:4px;overflow:hidden}
+#thrFill{height:100%;width:0%;background:linear-gradient(90deg,#4a4,#fc4,#f44)}
 </style>
 </head>
 <body>
 <div id="wrap">
 <header>
- <h1>白浜 ECO-CAR チャレンジ MSC500 3D戦略シム v2（旧滑走路 1周2,540m／要インターネット）</h1>
+ <h1>白浜 ECO-CAR チャレンジ MSC500 3D戦略シム v4.2（スタート/ピット=コース中間）</h1>
+ <span id="engState">3Dエンジン: 読込中…</span>
  <span id="padState">🎮 未接続</span><span id="viewState">🎥 チェイス</span>
+ <button id="btnSnd">🔊</button>
  <button id="ts1" class="on">1x</button><button id="ts2">2x</button><button id="ts4">4x</button>
- <button id="btnPause">Start/Pause(Space)</button><button id="btnSet">⚙ 設定</button>
+ <button id="btnPause">Start/Pause(Enter)</button><button id="btnSet">⚙ 設定</button>
 </header>
 <div id="main">
  <div id="courseBox"><canvas id="mm"></canvas></div>
  <div id="hud">
-  <div class="card"><div class="row"><span>速度</span><span id="fOv" class="warn hidden">オレンジボール!</span></div>
+  <div class="card"><div class="row"><span>速度</span><span id="fOv" class="warn hidden">低速警告!</span></div>
    <div class="big"><span id="hSpd">0.0</span> km/h</div><div id="flag"></div></div>
   <div class="card">
+   <div class="row"><span>スロットル(固定)</span><span id="hThr">0 %</span></div>
+   <div id="thrBar"><div id="thrFill"></div></div>
+   <div class="row"><span>舵角δ(前輪)</span><span id="hDel">0.0°</span></div>
    <div class="row"><span>モータ電流</span><span id="hAmp">0.0 A</span></div>
    <div class="row"><span>積算放出</span><span id="hAh">0.00 Ah</span></div>
    <div class="row"><span>バッテリ電圧</span><span id="hVolt">51.2 V</span></div>
@@ -61,8 +67,10 @@ button.on{background:#48a}
    <div class="row"><span>走行距離</span><span id="hDist">0 m</span></div>
    <div class="row"><span>ドライバー乗車</span><span id="hDrv">0:00</span></div></div>
   <div class="card" style="font-size:11px">
-   操作: ↑/W加速 ↓/S回生Br ←→/ADステア P=ピット C=交代(停止中) V=視点切替<br>
-   🎮: RT加速 LT回生Br 左スティック=ステア A=ピット/再スタート X=交代 Y=視点 Start=開始/停止
+   操作: ↑/W=スロットルUP ↓/S=スロットルDOWN(離すと固定) Space=ブレーキ(回生)<br>
+   ←→/AD=ステア(最大±5°) <b>※Uターン手動(20km/h以下)</b> C=交代(交代エリア停止中)<br>
+   V=視点 M=ミュート Enter=開始/ポーズ。ピットは中間地点左脇へ走行投入(2重線内30km/h)<br>
+   🎮: 右スティック↑↓=スロットル LT=回生Br 左スティック=ステア X=交代 Y=視点 Start=開始/停止
   </div>
  </div>
 </div>
@@ -82,232 +90,344 @@ button.on{background:#48a}
   <label>総重量 [kg]</label><input id="sM" type="number" value="150">
   <label>影(太陽表現)</label><select id="sSh"><option value="1" selected>オン</option><option value="0">オフ(軽量)</option></select>
  </div>
- <p style="font-size:12px">前提: モータ800W/効率80%/最高速60km/h、CdA≒0.16、Crr=0.008。オレンジボール=25km/h未満5秒(Uターン±100m除く)→ピットイン必須。ピット30km/h。連続乗車80分(超過1分=1周減算)。</p>
+ <p style="font-size:12px">前提: 三輪(前2後1)チェーン駆動・オープンロールバー、モータ800W/効率80%/最高速60km/h、CdA≒0.16、Crr=0.008(芝=0.06)。25km/h未満5秒継続(Uターン±100m除く)は警告のみ(ピット義務なし)。連続乗車80分(超過1分=1周減算)。</p>
  <button id="btnGo" style="font-size:16px;padding:6px 24px">セッション開始</button>
 </div></div>
 
 <div id="resOv" class="overlay hidden"><div class="panel"><h2>🏁 チェッカー — 結果</h2><pre id="resTxt" style="font-family:monospace"></pre>
 <button id="btnRe">セットアップへ戻る</button></div></div>
-
 <div id="errOv" class="overlay hidden"><div class="panel"><h2>⚠ 3Dエンジン読込失敗</h2>
-<p>Three.js をCDNから読込めませんでした。本バージョン(案A)は実行時にインターネット接続が必要です。オフライン環境ではネット接続のある環境で開いてください。</p></div></div>
+<p>3つのCDNすべてからThree.jsを読込めませんでした。別ネットワークで開いてください。</p></div></div>
 
 <script>
 "use strict";
 const $=id=>document.getElementById(id);
-const LAP=2540, STR=1220, TURN=50, TR=TURN/Math.PI;
+const CDNS=[
+ "https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js",
+ "https://unpkg.com/three@0.128.0/build/three.min.js",
+ "https://cdnjs.cloudflare.com/ajax/libs/three.js/0.128.0/three.min.js"];
+function loadThree(cb){if(window.THREE){cb(true);return;}let i=0;(function next(){if(i>=CDNS.length){cb(false);return;}
+ const s=document.createElement("script");s.src=CDNS[i];
+ s.onload=()=>{if(window.THREE){$("engState").textContent="3Dエンジン: 読込済";cb(true);}else{i++;next();}};
+ s.onerror=()=>{i++;next();};document.head.appendChild(s);})();}
+loadThree(ok=>{if(!ok)$("engState").textContent="3Dエンジン: 読込失敗";});
+const LAP=2540, STR=1220, TURN=50, TR=TURN/Math.PI, WB=1.6, MID=610;
 let P={Ah:20,sol:200,raceMin:150,t0:9,wx:"clear",sl:"V",rg:.7,m:150,sh:true};
 let capWh=960;
 const ocvT=[[0,40],[.1,44.8],[.2,48.8],[.5,51.2],[.8,52.8],[.95,55.2],[1,58.4]];
 function ocv(s){s=Math.max(0,Math.min(1,s));for(let i=1;i<ocvT.length;i++){if(s<=ocvT[i][0]){const[a,va]=ocvT[i-1],[b,vb]=ocvT[i];return va+(vb-va)*(s-a)/(b-a)}}return 58.4}
-function newState(){capWh=P.Ah*48;return{run:false,fin:false,t:0,s:0,v:0,lat:0,soc:1,AhOut:0,AhIn:0,Esol:0,Ereg:0,Emot:0,
- lap:1,lapT0:0,laps:[],drv:0,lowT:0,ball:false,mode:"track",pitD:0,pitX:0,stopT:0,viol:0,cloud:1,cloudVis:1,cloudT:0,
- hist:[],histAcc:0,warn75:false,warn80:false,penLap:0,I:0,V:ocv(1),Pmot:0,Prev:0,Psol:0,Pbat:0,turnWarnCd:0,view:"chase"};}
-let S=newState(), ts=1, keys={}, prevBtn={};
+function newState(){capWh=P.Ah*48;return{run:false,fin:false,t:0,x:MID-2,z:7.5,th:0,prevX:MID-2,v:0,delta:0,thrSet:0,soc:1,
+ AhOut:0,AhIn:0,Esol:0,Ereg:0,Emot:0,dist:0,lap:1,lapT0:0,laps:[],vR:false,vL:false,drv:0,lowT:0,ball:false,
+ boxStop:0,viol:0,cloud:1,cloudVis:1,cloudT:0,hist:[],histAcc:0,warn75:false,warn80:false,penLap:0,
+ I:0,V:ocv(1),Pmot:0,Prev:0,Psol:0,Pbat:0,turnWarnCd:0,grassCd:0,lowWarnCd:0,view:"chase",spin:0};}
+let S=newState(), ts=1, keys={}, prevBtn={}, mute=false;
 function log(m){const d=document.createElement("div");d.textContent="["+fmtT(S.t)+"] "+m;$("log").prepend(d);}
 function fmtT(s){s=Math.floor(s);return Math.floor(s/60)+":"+String(s%60).padStart(2,"0")}
+function projS(x,z){
+ if(x>STR){let a=Math.atan2(z-16,x-STR);return STR+TR*(a+Math.PI/2);}
+ if(x<0){let a=Math.atan2(z-16,x);if(a<0)a+=2*Math.PI;return 2*STR+TURN+TR*(a-Math.PI/2);}
+ if(z<16)return x;return STR+TURN+(STR-x);}
 function slopeAt(s){if(P.sl==="none")return 0;const g=Math.tan(Math.PI/180);let r=0;
  const q=(s<STR)?s:(s>=STR+TURN&&s<2*STR+TURN? s-STR-TURN : -1);
  if(q>=0)r=q<STR/2?-g:g; if(P.sl==="A")r=-r; return r;}
-function inTurn(s){return (s>=STR&&s<STR+TURN)||(s>=2*STR+TURN&&s<LAP);}
 function inCheck(s){return (s>100&&s<STR-100)||(s>STR+TURN+100&&s<2*STR+TURN-100);}
-function pathPos(s){s=((s%LAP)+LAP)%LAP;
- if(s<STR)return{x:s,z:0};
- if(s<STR+TURN){const a=Math.PI*(s-STR)/TURN;return{x:STR+TR*Math.sin(a),z:16-TR*Math.cos(a)}}
- if(s<2*STR+TURN){const q=s-STR-TURN;return{x:STR-q,z:32}}
- const a=Math.PI*(s-2*STR-TURN)/TURN;return{x:-TR*Math.sin(a),z:16+TR*Math.cos(a)}}
-function pathHead(s){const p1=pathPos(s),p2=pathPos(s+1);return Math.atan2(p2.z-p1.z,p2.x-p1.x);}
-function carPos2D(){
- if(S.mode==="track"){const p=pathPos(S.s);const off=S.lat*4;return{x:p.x,z:p.z+off,yaw:pathHead(S.s)};}
- if(S.mode==="toPit"){const d=S.pitD,xe=S.pitX;
-  if(d<8)return{x:xe,z:32+9*(d/8),yaw:Math.PI/2};
-  return{x:xe-(d-8),z:41,yaw:Math.PI};}
- if(S.mode==="stopped")return{x:S.pitX-72,z:41,yaw:Math.PI};
- const xb=S.pitX-72,d=Math.min(40,S.pitD),L1=Math.abs(xb)+10;
- if(d<Math.abs(xb))return{x:xb+d,z:41,yaw:0};
- if(d<L1)return{x:0,z:41-41*((d-Math.abs(xb))/10)*0+41,yaw:0};
- return{x:0,z:41-41*Math.min(1,(d-L1)/ (40-L1||1)),yaw:-Math.PI/2};}
+function onPav(x,z){return (x>=-22&&x<=1242&&z>=-6&&z<=38)||(x>=540&&x<=700&&z>=-15.5&&z<=-6);}
+function inPitLane(x,z){return z<-6&&z>-15.5&&x>540&&x<700;}
+function inBox(x,z){return z<-6&&z>-15.5&&x>595&&x<665;}
 function solarW(){const h=P.t0+S.t/3600;let f=Math.sin(Math.PI*(h-6)/12);f=Math.max(0,f);if(P.wx==="cloud")f*=S.cloud;return P.sol*f;}
-// ================= physics =================
+// ===== audio (quiet motor) =====
+let AU=null;
+function ensureAudio(){
+ if(AU){if(AU.ctx.state==="suspended")AU.ctx.resume();return;}
+ try{
+  const ctx=new (window.AudioContext||window.webkitAudioContext)();
+  const initNodes=()=>{
+   if(ctx.state==="suspended"){setTimeout(initNodes,100);return;}
+   const master=ctx.createGain();master.gain.value=mute?0:.9;master.connect(ctx.destination);
+   const osc=ctx.createOscillator();osc.type="sawtooth";
+   const filt=ctx.createBiquadFilter();filt.type="lowpass";filt.frequency.value=300;
+   const og=ctx.createGain();og.gain.value=0;osc.connect(filt);filt.connect(og);og.connect(master);
+   const mkNoise=()=>{const nb=ctx.createBuffer(1,ctx.sampleRate*2,ctx.sampleRate);const nd=nb.getChannelData(0);
+    for(let i=0;i<nd.length;i++)nd[i]=Math.random()*2-1;
+    const ns=ctx.createBufferSource();ns.buffer=nb;ns.loop=true;return ns;};
+   const wn=mkNoise();const wf=ctx.createBiquadFilter();wf.type="bandpass";wf.frequency.value=800;
+   const wg=ctx.createGain();wg.gain.value=0;wn.connect(wf);wf.connect(wg);wg.connect(master);
+   const rn=mkNoise();const rf=ctx.createBiquadFilter();rf.type="lowpass";rf.frequency.value=200;
+   const rg2=ctx.createGain();rg2.gain.value=0;rn.connect(rf);rf.connect(rg2);rg2.connect(master);
+   const ro=ctx.createOscillator();ro.type="sine";const rg=ctx.createGain();rg.gain.value=0;ro.connect(rg);rg.connect(master);
+   osc.start();wn.start();rn.start();ro.start();
+   AU={ctx,master,osc,og,filt,wg,rg2,ro,rg};
+   log("🔊 音声有効化（Mでミュート）");beep(880,.25);
+  };
+  ctx.resume().then(initNodes);
+ }catch(e){log("⚠ 音声初期化失敗: "+e.message);}
+}
+function beep(f,d){if(!AU||mute)return;const o=AU.ctx.createOscillator(),g=AU.ctx.createGain();
+ g.gain.setValueAtTime(.25,AU.ctx.currentTime);g.gain.exponentialRampToValueAtTime(.001,AU.ctx.currentTime+d);
+ o.frequency.value=f;o.connect(g);g.connect(AU.master);o.start();o.stop(AU.ctx.currentTime+d);}
+function updateAudio(){if(!AU)return;
+ const v=S.v,thr=S.run?S.thrSet:0,runK=S.run?1:.1;
+ AU.osc.frequency.value=40+v*9+thr*25;          // 控えめな唸り
+ AU.filt.frequency.value=250+v*25;
+ AU.og.gain.value=Math.min(.07,(thr*.05+Math.max(0,S.I)*.00025))*runK;
+ AU.wg.gain.value=Math.min(.15,Math.pow(v/16.7,2)*.15)*runK;
+ AU.rg2.gain.value=Math.min(.12,(v/16.7)*.12)*runK;
+ AU.rg.gain.value=S.Prev>1?.06:0;AU.ro.frequency.value=400+v*25;}
+// ===== physics =====
 function step(dt){
  if(!S.run||S.fin)return;
  S.t+=dt;
  if(P.wx==="cloud"){S.cloudT-=dt;if(S.cloudT<=0){S.cloudT=15+Math.random()*20;S.cloud=.25+Math.random()*.75;}}
  else S.cloud=1;
  const inp=readInput();
- if(S.mode!=="stopped")S.drv+=dt;
- if(S.drv>75*60&&!S.warn75){S.warn75=true;log("⚠ ドライバー乗車75分経過");}
- if(S.drv>80*60&&!S.warn80){S.warn80=true;log("🚨 連続乗車80分超過! 1分毎に1周減算");}
+ S.thrSet=Math.max(0,Math.min(1,S.thrSet+(inp.thrUp-inp.thrDn)*dt*.5));
+ const dmax=5*Math.PI/180;
+ S.delta+=(inp.steer*dmax-S.delta)*Math.min(1,dt*6);
+ const stopped=inBox(S.x,S.z)&&S.v<.05;
+ if(stopped)S.boxStop+=dt;else S.boxStop=0;
+ if(!stopped)S.drv+=dt;
+ if(S.drv>75*60&&!S.warn75){S.warn75=true;log("⚠ ドライバー乗車75分経過");beep(600,.2);}
+ if(S.drv>80*60&&!S.warn80){S.warn80=true;log("🚨 連続乗車80分超過! 1分毎に1周減算");beep(400,.4);}
  S.penLap=Math.max(0,Math.floor((S.drv-80*60)/60));
+ if(inp.chgEdge&&stopped){S.drv=0;S.warn75=S.warn80=false;log("🔄 ドライバー交代完了");beep(800,.15);}
+ if(stopped&&S.boxStop>180&&Math.floor(S.boxStop)!==Math.floor(S.boxStop-dt))log("⚠ 3分超過! パドック移動指示");
  S.Psol=solarW();
- const g0=9.81,sl=slopeAt(S.s);
- const Frr=P.m*g0*0.008*Math.cos(sl)*(S.v>0?1:0),Fgr=P.m*g0*Math.sin(sl)*(S.v>0?1:0),Fd=.5*1.2*0.16*S.v*S.v*(S.v>0?1:0);
+ const s=projS(S.x,S.z), g0=9.81, sl=slopeAt(s);
+ const Crr=onPav(S.x,S.z)?.008:.06;
+ const Frr=P.m*g0*Crr*Math.cos(sl)*(S.v>0?1:0),Fgr=P.m*g0*Math.sin(sl)*(S.v>0?1:0),Fd=.5*1.2*0.16*S.v*S.v*(S.v>0?1:0);
  let Fdrv=0,Pbat=0;
- if(S.soc>0.001&&S.mode!=="stopped"){Fdrv=inp.thr*Math.min(640/Math.max(S.v,.5),120);if(S.v>=60/3.6)Fdrv=0;Pbat=Fdrv*S.v/0.8;}
+ if(S.soc>0.001&&!stopped&&inp.brk<.05){Fdrv=S.thrSet*Math.min(640/Math.max(S.v,.5),120);if(S.v>=60/3.6)Fdrv=0;Pbat=Fdrv*S.v/0.8;}
  let Fbr=inp.brk*350,Preg=Fbr*S.v*P.rg;
  if(Preg>800){Fbr=800/Math.max(S.v,.5);Preg=800;}
  const a=(Fdrv-Frr-Fd-Fgr-Fbr)/P.m;
  S.v=Math.max(0,S.v+a*dt);
- if(S.mode==="track"){
-  if(inp.pitEdge&&S.s>=2*STR+TURN-100&&S.s<2*STR+TURN){S.mode="toPit";S.pitD=0;S.pitX=pathPos(S.s).x;log("ピットイン開始(制限30km/h)");}
-  else{S.s+=S.v*dt;
-   if(S.s>=LAP){S.s-=LAP;const lt=S.t-S.lapT0;S.laps.push(lt);log("Lap "+(S.laps.length)+" : "+lt.toFixed(1)+"s");S.lap++;S.lapT0=S.t;}}}
- else if(S.mode==="toPit"){
-  if(S.v>30/3.6){S.viol+=dt;if(S.viol>.5){log("⚠ ピットレーン速度超過!");S.viol=-3;}}
-  S.pitD+=S.v*dt;
-  if(S.pitD>=80&&S.v<.1){S.mode="stopped";S.stopT=0;log("ピット停止(交代エリア・最長3分)");}}
- else if(S.mode==="stopped"){
-  S.stopT+=dt;S.v=0;
-  if(S.stopT>180&&Math.floor(S.stopT)!==Math.floor(S.stopT-dt))log("⚠ 3分超過! パドック移動指示(シムは警告のみ)");
-  if(inp.chgEdge){S.drv=0;S.warn75=S.warn80=false;log("🔄 ドライバー交代完了");}
-  if(inp.pitEdge){S.mode="exit";S.pitD=0;log("ピットアウト");}}
- else if(S.mode==="exit"){
-  if(S.v>30/3.6){S.viol+=dt;if(S.viol>.5){log("⚠ ピットレーン速度超過!");S.viol=-3;}}
-  S.pitD+=S.v*dt;
-  if(S.pitD>=40){S.mode="track";S.s=0;S.lapT0=S.t;}}
- S.lat=Math.max(-1,Math.min(1,S.lat+inp.steer*dt*1.5));
+ S.x+=Math.cos(S.th)*S.v*dt;
+ S.z+=Math.sin(S.th)*S.v*dt;
+ S.th-=S.v*Math.tan(S.delta)/WB*dt;
+ S.dist+=S.v*dt;S.spin+=S.v*dt/.33;
+ S.x=Math.max(-90,Math.min(1290,S.x));S.z=Math.max(-50,Math.min(95,S.z));
+ S.grassCd-=dt;
+ if(!onPav(S.x,S.z)&&S.v>1&&S.grassCd<=0){log("⚠ 芝生上走行(転がり抵抗増)");S.grassCd=5;}
+ if(inPitLane(S.x,S.z)&&S.v>30/3.6){S.viol+=dt;if(S.viol>.5){log("⚠ ピットレーン速度超過!");beep(300,.3);S.viol=-3;}}
+ // ラップ: 両端折返し到達済＋中間スタートライン順方向通過
+ if(S.x>1200)S.vR=true;
+ if(S.x<20)S.vL=true;
+ if(S.prevX<MID&&S.x>=MID&&S.z<15&&Math.cos(S.th)>0&&S.vR&&S.vL){
+  const lt=S.t-S.lapT0;S.laps.push(lt);log("Lap "+(S.laps.length)+" : "+lt.toFixed(1)+"s");S.lap++;S.lapT0=S.t;S.vR=S.vL=false;beep(900,.1);}
+ S.prevX=S.x;
  const Pchg=Preg+S.Psol;
  const dWh=(Pbat-Pchg)*dt/3600;
  S.soc=Math.max(0,Math.min(1,S.soc-dWh/capWh));
  S.AhOut+=Pbat/Math.max(S.V,30)*dt/3600;S.AhIn+=Pchg/Math.max(S.V,30)*dt/3600;
  S.Emot+=Pbat*dt/3600;S.Ereg+=Preg*dt/3600;S.Esol+=S.Psol*dt/3600;
  S.I=(Pbat-Pchg)/Math.max(S.V,30);S.V=ocv(S.soc)-S.I*0.06;S.Pbat=Pbat;S.Pmot=Pbat*0.8;S.Prev=Preg;
- if(S.mode==="track"&&inCheck(S.s)&&S.v<25/3.6&&S.t>5)S.lowT+=dt;else S.lowT=0;
- if(!S.ball&&S.lowT>5){S.ball=true;log("🟠 オレンジボール提示! 即ピットインせよ");}
- if(S.ball&&S.mode==="stopped"&&S.stopT>3){S.ball=false;log("オレンジボール解除");}
+ if(inCheck(s)&&S.v<25/3.6&&S.t>5&&!inPitLane(S.x,S.z))S.lowT+=dt;else S.lowT=0;
+ S.lowWarnCd-=dt;
+ if(S.lowT>5&&S.lowWarnCd<=0){log("⚠ 低速警告(25km/h未満・基準ペース約27.7km/h)");beep(500,.3);S.lowWarnCd=15;}
  S.turnWarnCd-=dt;
- if(inTurn(S.s)&&S.v>6.5&&S.turnWarnCd<=0){log("⚠ Uターン速度超過(目安23km/h以下)");S.turnWarnCd=5;}
- if(S.t>=P.raceMin*60&&!S.fin){S.fin=true;S.run=false;showResult();}
+ const aLat=S.v*S.v*Math.tan(Math.abs(S.delta))/WB;
+ if(aLat>2.5&&S.turnWarnCd<=0){log("⚠ 旋回横G過大(20km/h以下で旋回)");beep(350,.2);S.turnWarnCd=5;}
+ if(S.t>=P.raceMin*60&&!S.fin){S.fin=true;S.run=false;beep(1000,1);showResult();}
  S.histAcc+=dt;
  if(S.histAcc>=1){S.histAcc=0;S.hist.push([S.t,S.v*3.6,S.soc*100,S.Pbat]);if(S.hist.length>20000)S.hist.shift();}
 }
-// ================= input =================
+// ===== input =====
 function edge(k,v){const p=prevBtn[k]||false;prevBtn[k]=v;return v&&!p;}
-function toggleRun(){if(S.fin)return;S.run=!S.run;log(S.run?"▶ 走行開始":"⏸ 一時停止");}
+function toggleRun(){if(S.fin)return;ensureAudio();S.run=!S.run;log(S.run?"▶ 走行開始":"⏸ 一時停止");}
 function readInput(){
- let thr=0,brk=0,steer=0,pit=false,chg=false,st=false,view=false;
- if(keys.ArrowUp||keys.KeyW)thr=1;if(keys.ArrowDown||keys.KeyS)brk=1;
- if(keys.ArrowLeft||keys.KeyA)steer-=1;if(keys.ArrowRight||keys.KeyD)steer+=1;
- pit=!!keys.KeyP;chg=!!keys.KeyC;
+ let thrUp=0,thrDn=0,brk=0,steer=0,chg=false,st=false,view=false;
+ if(keys.ArrowUp||keys.KeyW)thrUp=1;if(keys.ArrowDown||keys.KeyS)thrDn=1;
+ if(keys.Space||keys.KeyB)brk=1;
+ if(keys.ArrowLeft||keys.KeyA)steer+=1;if(keys.ArrowRight||keys.KeyD)steer-=1;
+ chg=!!keys.KeyC;
  const gps=navigator.getGamepads?navigator.getGamepads():[];let gp=null;
  for(const g of gps)if(g&&g.connected)gp=g;
  $("padState").textContent=gp?"🎮 接続中":"🎮 未接続";
- if(gp){thr=Math.max(thr,gp.buttons[7]?gp.buttons[7].value:0);
+ if(gp){
+  const rsY=gp.axes[3]||0;
+  if(rsY<-.15)thrUp=Math.max(thrUp,-rsY);if(rsY>.15)thrDn=Math.max(thrDn,rsY);
+  if(gp.buttons[12]&&gp.buttons[12].pressed)thrUp=1;if(gp.buttons[13]&&gp.buttons[13].pressed)thrDn=1;
   brk=Math.max(brk,gp.buttons[6]?gp.buttons[6].value:0);
-  if(Math.abs(gp.axes[0])>.15)steer=gp.axes[0];
+  if(Math.abs(gp.axes[0])>.15)steer=-gp.axes[0];
   const b=i=>gp.buttons[i]&&gp.buttons[i].pressed;
-  pit=pit||b(0);chg=chg||b(2);view=b(3);st=b(9);}
- if(keys.Space)st=true;
+  chg=chg||b(2);view=b(3);st=b(9);}
+ if(keys.Enter)st=true;
  if(edge("st",st))toggleRun();
  if(edge("vw",view||!!keys.KeyV)){S.view=S.view==="chase"?"cockpit":"chase";$("viewState").textContent=S.view==="chase"?"🎥 チェイス":"🎥 コックピット";}
  keys.KeyV=false;
- return{thr,brk,steer,pitEdge:edge("pe",pit),chgEdge:edge("ce",chg)};
+ return{thrUp,thrDn,brk,steer,chgEdge:edge("ce",chg)};
 }
-// ================= three.js =================
+// ===== three =====
 let T=null;
+function noiseTex(base,sp,n){const c=document.createElement("canvas");c.width=c.height=256;const g=c.getContext("2d");
+ g.fillStyle=base;g.fillRect(0,0,256,256);
+ for(let i=0;i<n;i++){g.fillStyle="rgba("+sp()+")";const w=1+Math.random()*3;g.fillRect(Math.random()*256,Math.random()*256,w,w);}
+ const t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;return t;}
+function panelTex(){const c=document.createElement("canvas");c.width=c.height=128;const g=c.getContext("2d");
+ g.fillStyle="#122a52";g.fillRect(0,0,128,128);g.strokeStyle="#3a5f96";g.lineWidth=2;
+ for(let i=0;i<=4;i++){g.beginPath();g.moveTo(i*32,0);g.lineTo(i*32,128);g.stroke();g.beginPath();g.moveTo(0,i*32);g.lineTo(128,i*32);g.stroke();}
+ g.strokeStyle="#d8d8d8";g.lineWidth=4;g.strokeRect(0,0,128,128);
+ const t=new THREE.CanvasTexture(c);return t;}
 function initThree(){
- if(!window.THREE){$("errOv").classList.remove("hidden");return false;}
  const box=$("courseBox");
  const r=new THREE.WebGLRenderer({antialias:true});
  r.setSize(box.clientWidth,box.clientHeight);r.setPixelRatio(Math.min(2,devicePixelRatio));
  r.shadowMap.enabled=P.sh;r.shadowMap.type=THREE.PCFSoftShadowMap;
+ r.outputEncoding=THREE.sRGBEncoding;r.toneMapping=THREE.ACESFilmicToneMapping;r.toneMappingExposure=1.1;
  box.insertBefore(r.domElement,$("mm"));
  const sc=new THREE.Scene();
- const cam=new THREE.PerspectiveCamera(70,box.clientWidth/box.clientHeight,.1,5000);
- sc.add(cam);
+ const cam=new THREE.PerspectiveCamera(70,box.clientWidth/box.clientHeight,.1,6000);sc.add(cam);
+ const skyU={top:{value:new THREE.Color(0x2277cc)},bot:{value:new THREE.Color(0xdfe9f3)}};
+ const sky=new THREE.Mesh(new THREE.SphereGeometry(3000,16,12),new THREE.ShaderMaterial({side:THREE.BackSide,depthWrite:false,uniforms:skyU,
+  vertexShader:"varying vec3 vP;void main(){vP=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}",
+  fragmentShader:"varying vec3 vP;uniform vec3 top;uniform vec3 bot;void main(){float h=max(normalize(vP).y,0.);gl_FragColor=vec4(mix(bot,top,pow(h,.55)),1.);}"}));
+ sc.add(sky);
  const hemi=new THREE.HemisphereLight(0xbfd8ff,0x3a5a2a,.8);sc.add(hemi);
- const sun=new THREE.DirectionalLight(0xffffff,1);sun.castShadow=P.sh;
+ const sun=new THREE.DirectionalLight(0xfff2dd,1);sun.castShadow=P.sh;
  sun.shadow.mapSize.set(2048,2048);
- const sc2=sun.shadow.camera;sc2.left=-80;sc2.right=80;sc2.top=80;sc2.bottom=-80;sc2.far=800;
+ const sc2=sun.shadow.camera;sc2.left=-80;sc2.right=80;sc2.top=80;sc2.bottom=-80;sc2.far=900;sc2.updateProjectionMatrix();
  sc.add(sun);sc.add(sun.target);
- // ground
- const ground=new THREE.Mesh(new THREE.PlaneGeometry(5000,900),new THREE.MeshLambertMaterial({color:0x4a7a3a}));
- ground.rotation.x=-Math.PI/2;ground.position.set(600,  -0.05,16);ground.receiveShadow=true;sc.add(ground);
- // pavement
- const pav=new THREE.Mesh(new THREE.PlaneGeometry(1264,44),new THREE.MeshLambertMaterial({color:0x3b3f45}));
+ const sunc=document.createElement("canvas");sunc.width=sunc.height=128;{const g=sunc.getContext("2d");
+  const gr=g.createRadialGradient(64,64,5,64,64,64);gr.addColorStop(0,"rgba(255,250,220,1)");gr.addColorStop(.3,"rgba(255,230,150,.9)");gr.addColorStop(1,"rgba(255,200,80,0)");
+  g.fillStyle=gr;g.fillRect(0,0,128,128);}
+ const sunSp=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(sunc),blending:THREE.AdditiveBlending,depthWrite:false}));
+ sunSp.scale.set(500,500,1);sc.add(sunSp);T={r,sc,cam,hemi,sun,skyU,sunSp,clouds:[]};
+ const gTex=noiseTex("#4a7a3a",()=>(Math.random()<.5?"0,0,0,.15":"255,255,255,.08"),9000);gTex.repeat.set(80,14);
+ const ground=new THREE.Mesh(new THREE.PlaneGeometry(5000,900),new THREE.MeshLambertMaterial({map:gTex}));
+ ground.rotation.x=-Math.PI/2;ground.position.set(600,-0.05,16);ground.receiveShadow=true;sc.add(ground);
+ const aTex=noiseTex("#3b3f45",()=>(Math.random()<.6?"0,0,0,.2":"255,255,255,.05"),7000);aTex.repeat.set(140,6);
+ const pav=new THREE.Mesh(new THREE.PlaneGeometry(1264,44),new THREE.MeshLambertMaterial({map:aTex}));
  pav.rotation.x=-Math.PI/2;pav.position.set(610,0,16);pav.receiveShadow=true;sc.add(pav);
- const pitPav=new THREE.Mesh(new THREE.PlaneGeometry(200,8),new THREE.MeshLambertMaterial({color:0x3b3f45}));
- pitPav.rotation.x=-Math.PI/2;pitPav.position.set(15,0.0,42);pitPav.receiveShadow=true;sc.add(pitPav);
- function strip(w,h,x,z,y,col,op){const m=new THREE.Mesh(new THREE.PlaneGeometry(w,h),new THREE.MeshBasicMaterial({color:col,transparent:op!==undefined,opacity:op===undefined?1:op}));
+ const pitPav=new THREE.Mesh(new THREE.PlaneGeometry(160,9.5),new THREE.MeshLambertMaterial({map:aTex}));
+ pitPav.rotation.x=-Math.PI/2;pitPav.position.set(620,0,-10.75);pitPav.receiveShadow=true;sc.add(pitPav);
+ function strip(w,h,x,z,y,col){const m=new THREE.Mesh(new THREE.PlaneGeometry(w,h),new THREE.MeshBasicMaterial({color:col}));
   m.rotation.x=-Math.PI/2;m.position.set(x,y,z);sc.add(m);return m;}
- // lane lines (dashed via texture)
  function dashTex(col){const c=document.createElement("canvas");c.width=64;c.height=8;const g=c.getContext("2d");g.fillStyle=col;g.fillRect(0,2,40,4);
   const t=new THREE.CanvasTexture(c);t.wrapS=THREE.RepeatWrapping;t.repeat.x=60;return t;}
  for(const z of[5,10,22,27]){const m=new THREE.Mesh(new THREE.PlaneGeometry(1220,.35),new THREE.MeshBasicMaterial({map:dashTex("#cccccc")}));
   m.rotation.x=-Math.PI/2;m.position.set(610,.02,z);sc.add(m);}
  strip(1220,.5,610,0,.02,0xeeeeee);strip(1220,.5,610,32,.02,0xeeeeee);
  strip(1220,.6,610,15.7,.03,0xdddd44);strip(1220,.6,610,16.3,.03,0xdddd44);
- // shoulder-relief yellow zones
  for(const[x0]of[[0],[1120]]){strip(100,1.2,x0+50,-5,.04,0xcccc22);strip(100,1.2,x0+50,37,.04,0xcccc22);}
- // turn blue areas + red triangles
- for(const cx of[0,1220]){const d=new THREE.Mesh(new THREE.CircleGeometry(TR,24),new THREE.MeshBasicMaterial({color:0x2277aa}));
+ for(const cx of[0,1220]){const d=new THREE.Mesh(new THREE.CircleGeometry(TR,24),new THREE.MeshLambertMaterial({color:0x2277aa}));
   d.rotation.x=-Math.PI/2;d.position.set(cx,.015,16);sc.add(d);
   const shp=new THREE.Shape();shp.moveTo(0,0);shp.lineTo(-9,5);shp.lineTo(-9,-5);shp.closePath();
   const tri=new THREE.Mesh(new THREE.ShapeGeometry(shp),new THREE.MeshBasicMaterial({color:0xcc2222}));
   tri.rotation.x=-Math.PI/2;tri.position.set(cx+(cx===0?-2:TR+2),.05,16);sc.add(tri);}
- // start line (checkered)
+ // スタートライン(中間)
  {const c=document.createElement("canvas");c.width=16;c.height=64;const g=c.getContext("2d");
   for(let i=0;i<16;i++)for(let j=0;j<4;j++){g.fillStyle=(i+j)%2?"#fff":"#111";g.fillRect(i,j*16,1,16);}
   const t=new THREE.CanvasTexture(c);const m=new THREE.Mesh(new THREE.PlaneGeometry(2,15),new THREE.MeshBasicMaterial({map:t}));
-  m.rotation.x=-Math.PI/2;m.position.set(0,.06,7.5);sc.add(m);}
- // pit lines
- strip(40,.4,40,38.5,.04,0xeeeeee);strip(60,.4,-10,38.2,.05,0xeeeeee);strip(60,.4,-10,38.8,.05,0xeeeeee);
- // cones
- const coneG=new THREE.ConeGeometry(.35,.9,8),coneM=new THREE.MeshLambertMaterial({color:0xff6600});
- for(const[x,z]of[[1140,-9],[1170,-9],[1200,-9],[1140,41],[1170,41],[1200,41],[20,-9],[60,-9]]){
+  m.rotation.x=-Math.PI/2;m.position.set(MID,.06,7.5);sc.add(m);}
+ // ピットライン(中間左脇)
+ strip(160,.4,620,-6.3,.04,0xeeeeee);strip(160,.4,620,-6.8,.05,0xeeeeee);strip(160,.4,620,-15.2,.05,0xeeeeee);
+ const coneG=new THREE.ConeGeometry(.35,.9,10),coneM=new THREE.MeshLambertMaterial({color:0xff6600});
+ for(const[x,z]of[[1140,-9],[1170,-9],[1200,-9],[1140,41],[1170,41],[1200,41],[545,-8],[700,-8],[545,-14],[700,-14]]){
   const cn=new THREE.Mesh(coneG,coneM);cn.position.set(x,.45,z);cn.castShadow=true;sc.add(cn);}
- // signs
- function sign(txt,x,z,s){const c=document.createElement("canvas");c.width=512;c.height=128;const g=c.getContext("2d");
-  g.fillStyle="#ffecb0";g.fillRect(0,0,512,128);g.fillStyle="#333";g.font="bold 52px sans-serif";g.textAlign="center";g.textBaseline="middle";g.fillText(txt,256,64);
-  const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c)}));sp.scale.set(s,s/4,1);sp.position.set(x,4,z);sc.add(sp);}
+ function sign(txt,x,z,s,bg){const c=document.createElement("canvas");c.width=512;c.height=128;const g=c.getContext("2d");
+  g.fillStyle=bg||"#ffecb0";g.fillRect(0,0,512,128);g.fillStyle="#333";g.font="bold 52px sans-serif";g.textAlign="center";g.textBaseline="middle";g.fillText(txt,256,64);
+  const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(c)}));sp.scale.set(s,s/4,1);sp.position.set(x,4,z);sc.add(sp);return sp;}
  sign("路肩制限解除 100m",50,-10,26);sign("路肩制限解除 100m",1170,-10,26);
- sign("PIT ドライバー交代",10,48,26);sign("START",0,-10,18);
- // clouds
- T={r,sc,cam,hemi,sun,clouds:[]};
- const clG=new THREE.PlaneGeometry(90,60);
- for(let i=0;i<8;i++){const cm=new THREE.Mesh(clG,new THREE.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:.55,depthWrite:false}));
-  cm.rotation.x=-Math.PI/2;cm.position.set(Math.random()*1400-100,60,Math.random()*300-100);sc.add(cm);T.clouds.push(cm);}
- // car
+ sign("PIT ドライバー交代",630,-20,26);
+ // スタート門(中間)
+ {const pm=new THREE.MeshLambertMaterial({color:0x888899});
+  for(const z of[-3,18]){const post=new THREE.Mesh(new THREE.CylinderGeometry(.15,.15,6,8),pm);post.position.set(MID,3,z);post.castShadow=true;sc.add(post);}
+  const beam=new THREE.Mesh(new THREE.BoxGeometry(.5,.8,21),pm);beam.position.set(MID,6,7.5);sc.add(beam);
+  sign("白浜 ECO-CAR チャレンジ",MID,7.5,20,"#ffffff").position.y=6;}
+ const trG1=new THREE.CylinderGeometry(.15,.25,2,6),trM1=new THREE.MeshLambertMaterial({color:0x6b4a2a});
+ const lfG=new THREE.ConeGeometry(2.2,5,8),lfM=new THREE.MeshLambertMaterial({color:0x2d5a2d});
+ for(let i=0;i<26;i++){const x=-60+Math.random()*1400, z=Math.random()<.5?-45-Math.random()*60:85+Math.random()*60;
+  const tr=new THREE.Mesh(trG1,trM1);tr.position.set(x,1,z);sc.add(tr);
+  const lf=new THREE.Mesh(lfG,lfM);lf.position.set(x,4.2,z);lf.castShadow=true;sc.add(lf);}
+ {const tent=new THREE.Mesh(new THREE.BoxGeometry(8,3,6),new THREE.MeshLambertMaterial({color:0xdddddd}));tent.position.set(650,1.5,-24);sc.add(tent);
+  const roof=new THREE.Mesh(new THREE.ConeGeometry(6,2,4),new THREE.MeshLambertMaterial({color:0xcc3333}));roof.position.set(650,4,-24);roof.rotation.y=Math.PI/4;sc.add(roof);}
+ for(let i=0;i<6;i++){const g=new THREE.Group();
+  for(let j=0;j<3;j++){const m=new THREE.Mesh(new THREE.SphereGeometry(18+Math.random()*14,10,8),
+   new THREE.MeshLambertMaterial({color:0xffffff,transparent:true,opacity:.85}));
+   m.position.set(j*20-20,Math.random()*6,Math.random()*14);m.scale.y=.45;g.add(m);}
+  g.position.set(Math.random()*1500-150,70,Math.random()*400-150);sc.add(g);T.clouds.push(g);}
+ // ===== 実車風 MSC500 (オープン・ロールバー・ワイドソーラーウィング) =====
  const car=new THREE.Group();
- const body=new THREE.Mesh(new THREE.BoxGeometry(2.6,.45,1.1),new THREE.MeshPhongMaterial({color:0xdd3322}));body.position.y=.5;body.castShadow=true;car.add(body);
- const panel=new THREE.Mesh(new THREE.BoxGeometry(2.2,.06,1.0),new THREE.MeshPhongMaterial({color:0x113377,shininess:80}));panel.position.y=.78;panel.castShadow=true;car.add(panel);
- const hel=new THREE.Mesh(new THREE.SphereGeometry(.22,12,10),new THREE.MeshPhongMaterial({color:0xeeeeee}));hel.position.set(.3,.85,0);car.add(hel);
- const wG=new THREE.CylinderGeometry(.33,.33,.12,12);
- for(const[wx,wz]of[[-.9,.62],[-.9,-.62],[1.1,.62],[1.1,-.62]]){const w=new THREE.Mesh(wG,new THREE.MeshLambertMaterial({color:0x111111}));
-  w.rotation.x=Math.PI/2;w.position.set(wx,.33,wz);w.castShadow=true;car.add(w);}
- sc.add(car);T.car=car;T.helY=.85;
+ const white=new THREE.MeshPhongMaterial({color:0xf0f0f0,shininess:30});
+ const orange=new THREE.MeshPhongMaterial({color:0xe84e1b,shininess:40});
+ const black=new THREE.MeshPhongMaterial({color:0x1a1a1a});
+ const solM=new THREE.MeshPhongMaterial({map:panelTex(),shininess:90});
+ const body=new THREE.Mesh(new THREE.BoxGeometry(2.4,.55,.8),white);body.position.y=.42;body.castShadow=true;car.add(body);
+ // ゼッケン13
+ {const c=document.createElement("canvas");c.width=128;c.height=64;const g=c.getContext("2d");
+  g.fillStyle="#f0f0f0";g.fillRect(0,0,128,64);g.fillStyle="#111";g.font="bold 48px sans-serif";g.textAlign="center";g.textBaseline="middle";g.fillText("13",64,32);
+  const t=new THREE.CanvasTexture(c);
+  const p1=new THREE.Mesh(new THREE.PlaneGeometry(.6,.3),new THREE.MeshBasicMaterial({map:t}));p1.position.set(0,.42,.41);car.add(p1);
+  const p2=p1.clone();p2.rotation.y=Math.PI;p2.position.z=-.41;car.add(p2);}
+ // ソーラーウィング(中央+傾斜サイド)
+ const dC=new THREE.Mesh(new THREE.BoxGeometry(1.7,.04,1.0),solM);dC.position.y=.82;dC.castShadow=true;car.add(dC);
+ for(const sd of[1,-1]){const dS=new THREE.Mesh(new THREE.BoxGeometry(1.7,.04,.62),solM);
+  dS.position.set(0,.78,sd*.8);dS.rotation.x=sd*.12;dS.castShadow=true;car.add(dS);
+  const trim=new THREE.Mesh(new THREE.BoxGeometry(1.7,.07,.05),orange);trim.position.set(0,.74,sd*1.1);car.add(trim);}
+ const trimF=new THREE.Mesh(new THREE.BoxGeometry(.05,.07,2.2),orange);trimF.position.set(.85,.8,0);car.add(trimF);
+ const trimR=trimF.clone();trimR.position.x=-.85;car.add(trimR);
+ // ヘルメット(オープン)
+ const hel=new THREE.Mesh(new THREE.SphereGeometry(.21,14,10),new THREE.MeshPhongMaterial({color:0xfafafa,shininess:80}));hel.position.set(.15,.98,0);car.add(hel);
+ // ロールバー(むき出しフープ)
+ const hoop=new THREE.Mesh(new THREE.TorusGeometry(.3,.028,8,16,Math.PI),black);
+ hoop.rotation.y=Math.PI/2;hoop.position.set(-.15,.85,0);car.add(hoop);
+ // スポーク車輪
+ function mkWheel(rad){const g=new THREE.Group();
+  const tire=new THREE.Mesh(new THREE.TorusGeometry(rad,.028,8,20),black);g.add(tire);
+  for(let i=0;i<6;i++){const sp=new THREE.Mesh(new THREE.BoxGeometry(rad*1.9,.018,.012),new THREE.MeshLambertMaterial({color:0xbbbbbb}));
+   sp.rotation.z=i*Math.PI/6;g.add(sp);}
+  const hub=new THREE.Mesh(new THREE.CylinderGeometry(.04,.04,.08,8),new THREE.MeshLambertMaterial({color:0x666666}));
+  hub.geometry.rotateX(Math.PI/2);g.add(hub);return g;}
+ T.wheelsF=[];
+ for(const sz of[.55,-.55]){const sg=new THREE.Group();sg.position.set(1.15,.33,sz);
+  const fork=new THREE.Mesh(new THREE.CylinderGeometry(.03,.03,.45,6),new THREE.MeshLambertMaterial({color:0x444444}));fork.position.y=.12;sg.add(fork);
+  const w=mkWheel(.3);sg.add(w);car.add(sg);T.wheelsF.push({g:sg,w});}
+ const wR=mkWheel(.38);wR.position.set(-1.05,.38,0);car.add(wR);T.wR=wR;
+ const disc=new THREE.Mesh(new THREE.CylinderGeometry(.12,.12,.02,16),new THREE.MeshPhongMaterial({color:0x999999}));
+ disc.geometry.rotateX(Math.PI/2);disc.position.set(-1.05,.38,.08);car.add(disc);
+ const spr=new THREE.Mesh(new THREE.CylinderGeometry(.16,.16,.03,12),new THREE.MeshLambertMaterial({color:0x777777}));
+ spr.geometry.rotateX(Math.PI/2);spr.position.set(-1.05,.38,.14);car.add(spr);
+ const mot=new THREE.Mesh(new THREE.CylinderGeometry(.11,.11,.3,10),new THREE.MeshPhongMaterial({color:0x3355aa}));
+ mot.geometry.rotateX(Math.PI/2);mot.position.set(-.6,.4,.18);car.add(mot);
+ const ch1=new THREE.Mesh(new THREE.BoxGeometry(.5,.025,.02),black);ch1.position.set(-.83,.55,.16);ch1.rotation.z=.3;car.add(ch1);
+ const ch2=ch1.clone();ch2.position.set(-.83,.22,.16);ch2.rotation.z=-.1;car.add(ch2);
+ sc.add(car);T.car=car;
+ sc.fog=new THREE.Fog(0x88bbdd,300,2500);
  addEventListener("resize",()=>{const w=box.clientWidth,h=box.clientHeight;r.setSize(w,h);cam.aspect=w/h;cam.updateProjectionMatrix();});
- return true;
 }
 function updateSun(){
  const h=P.t0+S.t/3600,f=Math.max(0,Math.sin(Math.PI*(h-6)/12));
- S.cloudVis+= (S.cloud-S.cloudVis)*.02;
+ S.cloudVis+=(S.cloud-S.cloudVis)*.02;
  const alt=(5+50*f)*Math.PI/180, az=(90+180*Math.min(1,Math.max(0,(h-6)/12)))*Math.PI/180;
- const p=carPos2D();
  const dx=Math.cos(alt)*Math.cos(az),dy=Math.sin(alt),dz=Math.cos(alt)*Math.sin(az);
- T.sun.position.set(p.x+dx*300,dy*300,p.z+dz*300);
- T.sun.target.position.set(p.x,0,p.z);
+ T.sun.position.set(S.x+dx*300,dy*300,S.z+dz*300);
+ T.sun.target.position.set(S.x,0,S.z);
  T.sun.intensity=.25+.95*f*(.35+.65*S.cloudVis);
  T.hemi.intensity=.35+.45*f;
- const sky=new THREE.Color().setHSL(.58,.55,.18+.5*f);
- T.sc.background=sky;T.sc.fog=new THREE.Fog(sky.getHex(),300,2200);
- for(const c of T.clouds){c.visible=P.wx==="cloud";c.position.x+=.05;if(c.position.x>1400)c.position.x=-150;}
+ const top=new THREE.Color().setHSL(.58,.55,.25+.4*f), bot=new THREE.Color().setHSL(.55,.4,.55+.25*f);
+ T.skyU.top.value.copy(top);T.skyU.bot.value.copy(bot);
+ T.sc.fog.color.copy(bot);
+ T.sunSp.position.set(S.x+dx*2500,Math.max(50,dy*2500),S.z+dz*2500);
+ T.sunSp.material.opacity=.4+.6*f;
+ for(const c of T.clouds){c.visible=P.wx==="cloud";c.position.x+=.06;if(c.position.x>1500)c.position.x=-200;}
 }
 function updateCarCam(dt){
- const p=carPos2D();
- T.car.position.set(p.x,0,p.z);T.car.rotation.y=-p.yaw;
- const fx=Math.cos(p.yaw),fz=Math.sin(p.yaw);
+ T.car.position.set(S.x,0,S.z);T.car.rotation.y=-S.th;
+ T.car.rotation.z=-S.delta*.08*Math.min(1,S.v/4);
+ const sa=Math.max(-.5,Math.min(.5,S.delta*1.1));
+ for(const fw of T.wheelsF){fw.g.rotation.y=sa;fw.w.rotation.z=S.spin;}
+ T.wR.rotation.z=S.spin;
+ const fx=Math.cos(S.th),fz=Math.sin(S.th);
  if(S.view==="chase"){
-  const tx=p.x-fx*9,ty=3.4,tz=p.z-fz*9;
   const k=1-Math.exp(-dt*4);
-  T.cam.position.lerp(new THREE.Vector3(tx,ty,tz),k);
-  T.cam.lookAt(p.x+fx*6,1,p.z+fz*6);
+  T.cam.position.lerp(new THREE.Vector3(S.x-fx*9,3.4,S.z-fz*9),k);
+  T.cam.lookAt(S.x+fx*6,1,S.z+fz*6);
  }else{
-  T.cam.position.set(p.x+fx*.4,1.05,p.z+fz*.4);
-  T.cam.lookAt(p.x+fx*40,0.8,p.z+fz*40);
+  T.cam.position.set(S.x+fx*.4,1.15,S.z+fz*.4);
+  T.cam.lookAt(S.x+fx*40,.9,S.z+fz*40);
  }
 }
-// ================= minimap & chart =================
+// ===== minimap / chart / hud =====
 const mm=$("mm"),mx=mm.getContext("2d"),ch=$("ch"),hx2=ch.getContext("2d");
 function fit(c,w,h){c.width=(w||c.parentElement.clientWidth)*devicePixelRatio;c.height=(h||c.parentElement.clientHeight)*devicePixelRatio;}
 function fitAll(){fit(mm,300,120);fit(ch);}
@@ -315,13 +435,15 @@ addEventListener("resize",fitAll);
 function drawMM(){const W=mm.width,H=mm.height;mx.clearRect(0,0,W,H);
  const sc=W/(STR+140),ox=70*sc,oy=H/2-16*sc;const X=x=>ox+x*sc,Y=z=>oy+z*sc;
  mx.fillStyle="#2b333c";mx.fillRect(X(-22),Y(-6),(STR+44)*sc,44*sc);
+ mx.fillStyle="#20262e";mx.fillRect(X(540),Y(-15.5),160*sc,9.5*sc);
  mx.fillStyle="#cc4";
  mx.fillRect(X(0),Y(-6),100*sc,2*sc);mx.fillRect(X(0),Y(36),100*sc,2*sc);
  mx.fillRect(X(1120),Y(-6),100*sc,2*sc);mx.fillRect(X(1120),Y(36),100*sc,2*sc);
  for(const tx of[0,1220]){mx.fillStyle="#27a";mx.beginPath();mx.arc(X(tx),Y(16),TR*sc,0,7);mx.fill();
   mx.fillStyle="#c22";mx.beginPath();mx.moveTo(X(tx),Y(16));mx.lineTo(X(tx)-8*sc,Y(11));mx.lineTo(X(tx)-8*sc,Y(21));mx.fill();}
- mx.strokeStyle="#fff";mx.lineWidth=2;mx.beginPath();mx.moveTo(X(0),Y(0));mx.lineTo(X(0),Y(15));mx.stroke();mx.lineWidth=1;
- const p=carPos2D();mx.fillStyle="#0f0";mx.beginPath();mx.arc(X(p.x),Y(p.z),3*devicePixelRatio,0,7);mx.fill();}
+ mx.strokeStyle="#fff";mx.lineWidth=2;mx.beginPath();mx.moveTo(X(MID),Y(0));mx.lineTo(X(MID),Y(15));mx.stroke();mx.lineWidth=1;
+ mx.save();mx.translate(X(S.x),Y(S.z));mx.rotate(S.th);
+ mx.fillStyle="#0f0";mx.beginPath();mx.moveTo(5*devicePixelRatio,0);mx.lineTo(-3*devicePixelRatio,2*devicePixelRatio);mx.lineTo(-3*devicePixelRatio,-2*devicePixelRatio);mx.fill();mx.restore();}
 function drawChart(){const W=ch.width,H=ch.height;hx2.clearRect(0,0,W,H);
  const n=S.hist.length;if(n<2)return;
  hx2.strokeStyle="#ff8";hx2.beginPath();
@@ -330,41 +452,48 @@ function drawChart(){const W=ch.width,H=ch.height;hx2.clearRect(0,0,W,H);
  S.hist.forEach((p,i)=>{const x=i/(n-1)*W,y=H-(p[2]/100)*H*.9;i?hx2.lineTo(x,y):hx2.moveTo(x,y)});hx2.stroke();
  hx2.fillStyle="#888";hx2.font=10*devicePixelRatio+"px sans-serif";hx2.fillText("黄=速度 緑=SOC",6,12*devicePixelRatio);}
 function hud(){$("hSpd").textContent=(S.v*3.6).toFixed(1);
+ $("hThr").textContent=Math.round(S.thrSet*100)+" %";$("thrFill").style.width=(S.thrSet*100)+"%";
+ $("hDel").textContent=(S.delta*180/Math.PI).toFixed(1)+"°";
  $("hAmp").textContent=S.I.toFixed(1)+" A";$("hAh").textContent=S.AhOut.toFixed(2)+" Ah";
  $("hVolt").textContent=S.V.toFixed(1)+" V";$("hWh").textContent=Math.round(S.soc*capWh)+" Wh";
  $("hSoc").textContent=(S.soc*100).toFixed(1)+" %";
  $("hSol").textContent=Math.round(S.Psol)+" W";$("hReg").textContent=Math.round(S.Prev)+" W";$("hMot").textContent=Math.round(S.Pmot)+" W";
  $("hClk").textContent=fmtT(S.t)+" / "+P.raceMin+"m";
  $("hLap").textContent=(S.lap-1)+" "+(S.laps.length?S.laps[S.laps.length-1].toFixed(1)+"s":"--");
- $("hDist").textContent=Math.round((S.lap-1)*LAP+S.s)+" m";
+ $("hDist").textContent=Math.round(S.dist)+" m";
  $("hDrv").textContent=fmtT(S.drv)+(S.drv>75*60?" ⚠":"");
- let fl="";if(S.ball)fl+="🟠オレンジボール ";if(S.mode!=="track")fl+="🔧PIT ";
+ let fl="";if(S.lowT>5)fl+="⚠低速 ";if(inPitLane(S.x,S.z))fl+="🔧PIT ";
  $("flag").innerHTML=fl?"<span class='warn'>"+fl+"</span>":"<span class='ok'>🟢 通常競技</span>";
- $("fOv").classList.toggle("hidden",!S.ball);}
+ $("fOv").classList.toggle("hidden",!(S.lowT>5));}
 function showResult(){$("resTxt").textContent=
- "周回数        : "+(S.lap-1)+"\n走行距離      : "+Math.round((S.lap-1)*LAP+S.s)+" m\n"+
+ "周回数        : "+(S.lap-1)+"\n走行距離      : "+Math.round(S.dist)+" m\n"+
  "ペナルティ    : "+S.penLap+" 周(乗車超過)\n有効周回      : "+Math.max(0,(S.lap-1)-S.penLap)+"\n\n"+
  "バッテリ放出  : "+S.AhOut.toFixed(2)+" Ah / "+S.Emot.toFixed(0)+" Wh\n回生回収      : "+S.Ereg.toFixed(0)+" Wh\n太陽光発電    : "+S.Esol.toFixed(0)+" Wh\n残SOC         : "+(S.soc*100).toFixed(1)+" %";
  $("resOv").classList.remove("hidden");}
-// ================= main loop =================
 let last=performance.now();
 function loop(now){const dtR=Math.min(.1,(now-last)/1000);last=now;
  const sub=Math.max(1,Math.round(dtR*50*ts)),dt=dtR*ts/sub;
  for(let i=0;i<sub;i++)step(dt);
  if(T){updateSun();updateCarCam(dtR);T.r.render(T.sc,T.cam);}
- drawMM();drawChart();hud();requestAnimationFrame(loop);}
-// ================= events =================
-addEventListener("keydown",e=>{keys[e.code]=true;if(["Space","ArrowUp","ArrowDown"].includes(e.code))e.preventDefault();});
+ updateAudio();drawMM();drawChart();hud();requestAnimationFrame(loop);}
+addEventListener("keydown",e=>{keys[e.code]=true;if(["Space","ArrowUp","ArrowDown","Enter"].includes(e.code))e.preventDefault();
+ ensureAudio();
+ if(e.code==="KeyM"){mute=!mute;$("btnSnd").textContent=mute?"🔇":"🔊";if(AU)AU.master.gain.value=mute?0:.9;}});
 addEventListener("keyup",e=>{keys[e.code]=false;});
+addEventListener("pointerdown",()=>ensureAudio());
+$("btnSnd").onclick=()=>{mute=!mute;$("btnSnd").textContent=mute?"🔇":"🔊";ensureAudio();if(AU)AU.master.gain.value=mute?0:.9;};
 [["ts1",1],["ts2",2],["ts4",4]].forEach(([id,v])=>$(id).onclick=()=>{ts=v;["ts1","ts2","ts4"].forEach(x=>$(x).classList.toggle("on",x===id));});
 $("btnPause").onclick=toggleRun;
 $("btnSet").onclick=()=>$("setOv").classList.remove("hidden");
-$("btnGo").onclick=()=>{P.Ah=+$("sAh").value||20;P.sol=+$("sSol").value||200;P.raceMin=+$("sRace").value;P.t0=+$("sT0").value;
- P.wx=$("sWx").value;P.sl=$("sSl").value;P.rg=($("sRg").value||70)/100;P.m=+$("sM").value||150;P.sh=$("sSh").value==="1";
- S=newState();$("log").innerHTML="";$("setOv").classList.add("hidden");$("resOv").classList.add("hidden");
- if(!T)initThree();
- if(T){T.sun.castShadow=P.sh;T.car.traverse(o=>{if(o.isMesh)o.castShadow=true;});}
- log("セッション準備完了: "+P.raceMin+"分 / 太陽"+P.sol+"W / バッテリ"+P.Ah+"Ah — SpaceまたはStartでスタート");};
+$("btnGo").onclick=()=>{
+ const start=()=>{P.Ah=+$("sAh").value||20;P.sol=+$("sSol").value||200;P.raceMin=+$("sRace").value;P.t0=+$("sT0").value;
+  P.wx=$("sWx").value;P.sl=$("sSl").value;P.rg=($("sRg").value||70)/100;P.m=+$("sM").value||150;P.sh=$("sSh").value==="1";
+  S=newState();$("log").innerHTML="";$("setOv").classList.add("hidden");$("resOv").classList.add("hidden");
+  if(!T)initThree();ensureAudio();
+  log("セッション準備完了: "+P.raceMin+"分 / 太陽"+P.sol+"W / バッテリ"+P.Ah+"Ah — EnterまたはStartでスタート（スタート/ピットはコース中間）");};
+ if(window.THREE){start();}
+ else{$("engState").textContent="3Dエンジン: 読込中…";loadThree(ok=>{if(ok)start();else $("errOv").classList.remove("hidden");});}
+};
 $("btnRe").onclick=()=>{$("resOv").classList.add("hidden");$("setOv").classList.remove("hidden");};
 fitAll();requestAnimationFrame(loop);
 </script>
